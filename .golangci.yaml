@@ -1,0 +1,35 @@
+run:
+  tests: false
+  timeout: 5m
+linters:
+  enable:
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - decorder
+    - depguard
+    - errchkjson
+    - durationcheck
+    - errname
+    - errorlint
+    - exportloopref
+    - goconst
+    - gocritic
+    - gofmt
+    - grouper
+    - importas
+    - misspell
+    - nakedret
+    - nilerr
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - promlinter
+    - reassign
+    - revive
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - whitespace
