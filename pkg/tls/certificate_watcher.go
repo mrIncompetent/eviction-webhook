@@ -9,6 +9,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func NewCertificateWatcher(log *zap.Logger, certPath, keyPath string) (*CertificateWatcher, error) {
@@ -69,7 +70,11 @@ func (cw *CertificateWatcher) Run(ctx context.Context) error {
 				return
 			}
 
-			cw.log.Info("Watcher event", zap.Any("event", event))
+			cw.log.Info("Watcher event", zap.Object("event", zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
+				enc.AddString("name", event.Name)
+				enc.AddString("op", event.Op.String())
+				return nil
+			})))
 			reloadChan <- true
 		}
 	}()
