@@ -39,9 +39,13 @@ func main() {
 	listenAddress := flag.String("listen-address", "127.0.0.1:6443", "Listen address")
 	tlsCertPath := flag.String("tls.cert-path", "tls.crt", "")
 	tlsKeyPath := flag.String("tls.key-path", "tls.key", "")
+	logLevel := zap.LevelFlag("log.level", zap.InfoLevel, "Log level")
 	flag.Parse()
 
-	log, err := zap.NewProduction()
+	logCfg := zap.NewProductionConfig()
+	logCfg.Level = zap.NewAtomicLevelAt(*logLevel)
+
+	log, err := logCfg.Build()
 	if err != nil {
 		panic(fmt.Errorf("failed to create log: %w", err))
 	}
