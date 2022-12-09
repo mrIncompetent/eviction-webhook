@@ -85,9 +85,10 @@ func main() {
 		log.Panic("failed to add schemas", zap.Error(err))
 	}
 
+	registry := prometheus.NewRegistry()
 	admissionServer := admission.NewServer(scheme)
 
-	mux := http.NewServeMux()
+	mux := httphelper.NewInstrumentedMux(registry)
 	mux.HandleFunc("/validate-eviction",
 		admissionServer.HandleV1AdmissionReview(
 			eviction.Handler(eviction.NewStore(log, parsedServerVersion, informerFactory.Policy(), clientset.CoreV1()), 1024),
@@ -96,14 +97,13 @@ func main() {
 	mux.HandleFunc("/ready", func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusOK)
 	})
-	registry := prometheus.NewRegistry()
+
 	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{
 		ErrorLog:          zapgrpc.NewLogger(log),
 		Registry:          registry,
 		Timeout:           5 * time.Second,
 		EnableOpenMetrics: true,
 	}))
-
 	certWatcherMetricsVec := tlshelper.NewPrometheusCertificateWatcherMetricsVec(registry)
 	certWatcher, err := tlshelper.NewCertificateWatcher(
 		log,
