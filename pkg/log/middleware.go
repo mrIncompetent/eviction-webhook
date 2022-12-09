@@ -59,14 +59,22 @@ func RequestLogMiddleware(log *zap.Logger, next http.Handler) http.Handler {
 			}
 			next.ServeHTTP(ww, request)
 
-			log = log.With(
-				zap.Object("response", zapcore.ObjectMarshalerFunc(func(encoder zapcore.ObjectEncoder) error {
-					encoder.AddString("body", ww.responseBody.String())
-					encoder.AddInt("status-code", ww.statusCode)
-
-					return nil
-				})),
-			)
+			if log.Level() == zapcore.DebugLevel {
+				log = log.With(
+					zap.Object("response", zapcore.ObjectMarshalerFunc(func(encoder zapcore.ObjectEncoder) error {
+						encoder.AddString("body", ww.responseBody.String())
+						encoder.AddInt("status-code", ww.statusCode)
+						return nil
+					})),
+				)
+			} else {
+				log = log.With(
+					zap.Object("response", zapcore.ObjectMarshalerFunc(func(encoder zapcore.ObjectEncoder) error {
+						encoder.AddInt("status-code", ww.statusCode)
+						return nil
+					})),
+				)
+			}
 
 			log.Info("Finished request")
 		},
