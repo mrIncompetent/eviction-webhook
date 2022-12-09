@@ -88,7 +88,7 @@ func main() {
 	registry := prometheus.NewRegistry()
 	admissionServer := admission.NewServer(scheme)
 
-	mux := httphelper.NewInstrumentedMux(registry)
+	mux := httphelper.NewInstrumentedMux(httphelper.NewPrometheusMuxMetrics(registry))
 	mux.HandleFunc("/validate-eviction",
 		admissionServer.HandleV1AdmissionReview(
 			eviction.Handler(eviction.NewStore(log, parsedServerVersion, informerFactory.Policy(), clientset.CoreV1()), 1024),
