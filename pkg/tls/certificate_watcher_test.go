@@ -52,7 +52,7 @@ func TestNewCertificateWatcher(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privBytes}), 0666))
 
-	watcher, err := NewCertificateWatcher(zaptest.NewLogger(t), certPath, keyPath)
+	watcher, err := NewCertificateWatcher(zaptest.NewLogger(t), certPath, keyPath, &NoOpCertificateWatcherMetrics{})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())

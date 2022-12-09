@@ -3,16 +3,18 @@ package tls
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-func NewCertificateWatcher(log *zap.Logger, certPath, keyPath string) (*CertificateWatcher, error) {
+func NewCertificateWatcher(log *zap.Logger, certPath, keyPath string, metrics CertificateWatcherMetrics) (*CertificateWatcher, error) {
 	cw := &CertificateWatcher{
 		log: log.Named("CertificateWatcher").With(
 			zap.Any("certificate-path", certPath),
@@ -20,6 +22,7 @@ func NewCertificateWatcher(log *zap.Logger, certPath, keyPath string) (*Certific
 		),
 		certPath: certPath,
 		keyPath:  keyPath,
+		metrics:  metrics,
 	}
 
 	if err := cw.reload(); err != nil {
@@ -37,6 +40,8 @@ type CertificateWatcher struct {
 
 	certPath string
 	keyPath  string
+
+	metrics CertificateWatcherMetrics
 }
 
 func (cw *CertificateWatcher) Run(ctx context.Context) error {
@@ -112,12 +117,22 @@ func (cw *CertificateWatcher) Run(ctx context.Context) error {
 func (cw *CertificateWatcher) reload() error {
 	cert, err := tls.LoadX509KeyPair(cw.certPath, cw.keyPath)
 	if err != nil {
-		return err
+		cw.metrics.ReloadFailure(CertificateWatcherReloadFailureReasonLoadKeypair)
+		return fmt.Errorf("failed to load certificate: %w", err)
+	}
+
+	x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		cw.metrics.ReloadFailure(CertificateWatcherReloadFailureReasonParseCertificate)
+		return fmt.Errorf("failed to parse certificate: %w", err)
 	}
 
 	cw.certLock.Lock()
 	defer cw.certLock.Unlock()
 	cw.cert = &cert
+
+	cw.metrics.ReloadSuccess()
+	cw.metrics.CertificateExpirationTimestamp(x509Cert.NotAfter)
 
 	return nil
 }
@@ -127,4 +142,92 @@ func (cw *CertificateWatcher) GetCertificate(_ *tls.ClientHelloInfo) (*tls.Certi
 	defer cw.certLock.RUnlock()
 
 	return cw.cert, nil
+}
+
+type CertificateWatcherReloadFailureReason string
+
+const (
+	// CertificateWatcherReloadFailureReasonParseCertificate is used when the certificate could not be parsed.
+	CertificateWatcherReloadFailureReasonParseCertificate CertificateWatcherReloadFailureReason = "parse_certificate"
+	// CertificateWatcherReloadFailureReasonLoadKeypair is used when either the certificate or the key could not be loaded.
+	CertificateWatcherReloadFailureReasonLoadKeypair CertificateWatcherReloadFailureReason = "load_keypair"
+)
+
+// CertificateWatcherMetrics defines functions to emit metrics for the certificate watcher.
+type CertificateWatcherMetrics interface {
+	// ReloadSuccess is called when the certificate watcher successfully reloads the certificate.
+	ReloadSuccess()
+	// ReloadFailure is called when the certificate watcher fails to reload the certificate.
+	ReloadFailure(reason CertificateWatcherReloadFailureReason)
+	// CertificateExpirationTimestamp is called when the certificate watcher loads/reloads the certificate.
+	CertificateExpirationTimestamp(time.Time)
+}
+
+type NoOpCertificateWatcherMetrics struct{}
+
+func (NoOpCertificateWatcherMetrics) ReloadSuccess() {}
+
+func (NoOpCertificateWatcherMetrics) ReloadFailure(reason CertificateWatcherReloadFailureReason) {}
+
+func (NoOpCertificateWatcherMetrics) CertificateExpirationTimestamp(time.Time) {}
+
+type PrometheusCertificateWatcherMetricsVec struct {
+	reloadSuccessCounter           *prometheus.CounterVec
+	reloadFailureCounter           *prometheus.CounterVec
+	certificateExpirationTimestamp *prometheus.GaugeVec
+}
+
+func NewPrometheusCertificateWatcherMetricsVec(reg prometheus.Registerer) *PrometheusCertificateWatcherMetricsVec {
+	labelNames := []string{
+		"certificate_path",
+		"key_path",
+	}
+
+	m := &PrometheusCertificateWatcherMetricsVec{
+		reloadSuccessCounter: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "cert_watcher_reload_success_total",
+			Help: "Total number of successful certificate reloads.",
+		}, labelNames),
+		reloadFailureCounter: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "cert_watcher_reload_failure_total",
+			Help: "Total number of failed certificate reloads.",
+		}, append(labelNames, "reason")),
+		certificateExpirationTimestamp: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "cert_watcher_certificate_expiration_timestamp",
+			Help: "Timestamp of the certificate expiration.",
+		}, labelNames),
+	}
+
+	reg.MustRegister(m.reloadSuccessCounter, m.reloadFailureCounter, m.certificateExpirationTimestamp)
+
+	return m
+}
+
+type PrometheusCertificateWatcherMetrics struct {
+	CertificatePath string
+	KeyPath         string
+
+	MetricsVec *PrometheusCertificateWatcherMetricsVec
+}
+
+func (m *PrometheusCertificateWatcherMetrics) ReloadSuccess() {
+	m.MetricsVec.reloadSuccessCounter.With(prometheus.Labels{
+		"certificate_path": m.CertificatePath,
+		"key_path":         m.KeyPath,
+	}).Inc()
+}
+
+func (m *PrometheusCertificateWatcherMetrics) ReloadFailure(reason CertificateWatcherReloadFailureReason) {
+	m.MetricsVec.reloadFailureCounter.With(prometheus.Labels{
+		"certificate_path": m.CertificatePath,
+		"key_path":         m.KeyPath,
+		"reason":           string(reason),
+	}).Inc()
+}
+
+func (m *PrometheusCertificateWatcherMetrics) CertificateExpirationTimestamp(t time.Time) {
+	m.MetricsVec.certificateExpirationTimestamp.With(prometheus.Labels{
+		"certificate_path": m.CertificatePath,
+		"key_path":         m.KeyPath,
+	}).Set(float64(t.Unix()))
 }

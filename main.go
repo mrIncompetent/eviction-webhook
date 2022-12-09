@@ -14,7 +14,10 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/oklog/run"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapgrpc"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,7 +37,7 @@ import (
 func main() {
 	kubeconfig := flag.String("kubeconfig", "", "Path to kubeconfig")
 	listenAddress := flag.String("listen-address", "127.0.0.1:6443", "Listen address")
-	tlsCertPath := flag.String("tls.cert-path", "tls.cert", "")
+	tlsCertPath := flag.String("tls.cert-path", "tls.crt", "")
 	tlsKeyPath := flag.String("tls.key-path", "tls.key", "")
 	flag.Parse()
 
@@ -89,8 +92,25 @@ func main() {
 	mux.HandleFunc("/ready", func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusOK)
 	})
+	registry := prometheus.NewRegistry()
+	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{
+		ErrorLog:          zapgrpc.NewLogger(log),
+		Registry:          registry,
+		Timeout:           5 * time.Second,
+		EnableOpenMetrics: true,
+	}))
 
-	certWatcher, err := tlshelper.NewCertificateWatcher(log, *tlsCertPath, *tlsKeyPath)
+	certWatcherMetricsVec := tlshelper.NewPrometheusCertificateWatcherMetricsVec(registry)
+	certWatcher, err := tlshelper.NewCertificateWatcher(
+		log,
+		*tlsCertPath,
+		*tlsKeyPath,
+		&tlshelper.PrometheusCertificateWatcherMetrics{
+			CertificatePath: *tlsCertPath,
+			KeyPath:         *tlsKeyPath,
+			MetricsVec:      certWatcherMetricsVec,
+		},
+	)
 	if err != nil {
 		log.Panic("failed to create certificate reloader", zap.Error(err))
 	}
