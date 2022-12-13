@@ -40,9 +40,7 @@ func TestNewCertificateWatcher(t *testing.T) {
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, priv.Public(), priv)
 	require.NoError(t, err)
 
-	dir, err := os.MkdirTemp(os.TempDir(), "cert-watcher")
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(dir)) })
+	dir := t.TempDir()
 
 	certPath := path.Join(dir, "cert.pem")
 	require.NoError(t, os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes}), 0666))
