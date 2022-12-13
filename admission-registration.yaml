@@ -69,6 +69,11 @@ spec:
     metadata:
       labels:
         app: eviction-webhook
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8443"
+        prometheus.io/scheme: "https"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: eviction-webhook
       topologySpreadConstraints:
@@ -77,7 +82,7 @@ spec:
           whenUnsatisfiable: ScheduleAnyway
       containers:
         - name: server
-          image: quay.io/mrincompetent/eviction-webhook:v0.0.1
+          image: quay.io/mrincompetent/eviction-webhook:v0.0.3
           command: [ "/eviction-webhook" ]
           args: [
             "-listen-address", "0.0.0.0:8443",
