@@ -224,7 +224,7 @@ type NoOpCertificateWatcherMetrics struct{}
 
 func (NoOpCertificateWatcherMetrics) ReloadSuccess() {}
 
-func (NoOpCertificateWatcherMetrics) ReloadFailure(reason CertificateWatcherReloadFailureReason) {}
+func (NoOpCertificateWatcherMetrics) ReloadFailure(_ CertificateWatcherReloadFailureReason) {}
 
 func (NoOpCertificateWatcherMetrics) CertificateExpirationTimestamp(time.Time) {}
 
